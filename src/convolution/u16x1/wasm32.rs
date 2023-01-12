@@ -58,24 +58,24 @@ unsafe fn horiz_convolution_four_rows(
         |L0  | |L1  | |L2  | |L3  | |L4  | |L5  | |L6  | |L7  |
         |0001| |0203| |0405| |0607| |0809| |1011| |1213| |1415|
 
-        Shuffle to extract L0 and L1 as i64:
-        0, 1, -1, -1, -1, -1, -1, -1, 2, 3, -1, -1, -1, -1, -1, -1
+        Shuffle to extract L0 and L1 as i32:
+        0, 1, -1, -1, 2, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
 
-        Shuffle to extract L2 and L3 as i64:
-        4, 5, -1, -1, -1, -1, -1, -1, 6, 7, -1, -1, -1, -1, -1, -1
+        Shuffle to extract L2 and L3 as i32:
+        4, 5, -1, -1, 6, 7, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
 
-        Shuffle to extract L4 and L5 as i64:
-        8, 9, -1, -1, -1, -1, -1, -1, 10, 11, -1, -1, -1, -1, -1, -1
+        Shuffle to extract L4 and L5 as i32:
+        8, 9, -1, -1, 10, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
 
-        Shuffle to extract L6 and L7 as i64:
-        12, 13, -1, -1, -1, -1, -1, -1, 14, 15, -1, -1, -1, -1, -1, -1
+        Shuffle to extract L6 and L7 as i32:
+        12, 13, -1, -1, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
     */
 
-    const L0L1_SHUFFLE: v128 = i8x16(0, 1, -1, -1, -1, -1, -1, -1, 2, 3, -1, -1, -1, -1, -1, -1);
-    const L2L3_SHUFFLE: v128 = i8x16(4, 5, -1, -1, -1, -1, -1, -1, 6, 7, -1, -1, -1, -1, -1, -1);
-    const L4L5_SHUFFLE: v128 = i8x16(8, 9, -1, -1, -1, -1, -1, -1, 10, 11, -1, -1, -1, -1, -1, -1);
+    const L0L1_SHUFFLE: v128 = i8x16(0, 1, -1, -1, 2, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1);
+    const L2L3_SHUFFLE: v128 = i8x16(4, 5, -1, -1, 6, 7, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1);
+    const L4L5_SHUFFLE: v128 = i8x16(8, 9, -1, -1, 10, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1);
     const L6L7_SHUFFLE: v128 = i8x16(
-        12, 13, -1, -1, -1, -1, -1, -1, 14, 15, -1, -1, -1, -1, -1, -1,
+        12, 13, -1, -1, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
     );
 
     for (dst_x, coeffs_chunk) in coefficients_chunks.iter().enumerate() {
@@ -88,26 +88,26 @@ unsafe fn horiz_convolution_four_rows(
         coeffs = coeffs_by_8.remainder();
 
         for k in coeffs_by_8 {
-            let coeff01_i64x2 = i64x2(k[0] as i64, k[1] as i64);
-            let coeff23_i64x2 = i64x2(k[2] as i64, k[3] as i64);
-            let coeff45_i64x2 = i64x2(k[4] as i64, k[5] as i64);
-            let coeff67_i64x2 = i64x2(k[6] as i64, k[7] as i64);
+            let coeff01_i64x2 = i32x4(k[0] as i32, k[1] as i32, 0, 0);
+            let coeff23_i64x2 = i32x4(k[2] as i32, k[3] as i32, 0, 0);
+            let coeff45_i64x2 = i32x4(k[4] as i32, k[5] as i32, 0, 0);
+            let coeff67_i64x2 = i32x4(k[6] as i32, k[7] as i32, 0, 0);
 
             for i in 0..4 {
                 let mut sum = ll_sum[i];
                 let source = wasm32_utils::load_v128(src_rows[i], x);
 
                 let l0l1_i64x2 = i8x16_swizzle(source, L0L1_SHUFFLE);
-                sum = i64x2_add(sum, wasm32_utils::i64x2_mul_lo(l0l1_i64x2, coeff01_i64x2));
+                sum = i64x2_add(sum, i64x2_extmul_low_i32x4(l0l1_i64x2, coeff01_i64x2));
 
                 let l2l3_i64x2 = i8x16_swizzle(source, L2L3_SHUFFLE);
-                sum = i64x2_add(sum, wasm32_utils::i64x2_mul_lo(l2l3_i64x2, coeff23_i64x2));
+                sum = i64x2_add(sum, i64x2_extmul_low_i32x4(l2l3_i64x2, coeff23_i64x2));
 
                 let l4l5_i64x2 = i8x16_swizzle(source, L4L5_SHUFFLE);
-                sum = i64x2_add(sum, wasm32_utils::i64x2_mul_lo(l4l5_i64x2, coeff45_i64x2));
+                sum = i64x2_add(sum, i64x2_extmul_low_i32x4(l4l5_i64x2, coeff45_i64x2));
 
                 let l6l7_i64x2 = i8x16_swizzle(source, L6L7_SHUFFLE);
-                sum = i64x2_add(sum, wasm32_utils::i64x2_mul_lo(l6l7_i64x2, coeff67_i64x2));
+                sum = i64x2_add(sum, i64x2_extmul_low_i32x4(l6l7_i64x2, coeff67_i64x2));
 
                 ll_sum[i] = sum;
             }
@@ -118,18 +118,18 @@ unsafe fn horiz_convolution_four_rows(
         coeffs = coeffs_by_4.remainder();
 
         for k in coeffs_by_4 {
-            let coeff01_i64x2 = i64x2(k[0] as i64, k[1] as i64);
-            let coeff23_i64x2 = i64x2(k[2] as i64, k[3] as i64);
+            let coeff01_i64x2 = i32x4(k[0] as i32, k[1] as i32, 0, 0);
+            let coeff23_i64x2 = i32x4(k[2] as i32, k[3] as i32, 0, 0);
 
             for i in 0..4 {
                 let mut sum = ll_sum[i];
                 let source = wasm32_utils::load_v128(src_rows[i], x);
 
                 let l0l1_i64x2 = i8x16_swizzle(source, L0L1_SHUFFLE);
-                sum = i64x2_add(sum, wasm32_utils::i64x2_mul_lo(l0l1_i64x2, coeff01_i64x2));
+                sum = i64x2_add(sum, i64x2_extmul_low_i32x4(l0l1_i64x2, coeff01_i64x2));
 
                 let l2l3_i64x2 = i8x16_swizzle(source, L2L3_SHUFFLE);
-                sum = i64x2_add(sum, wasm32_utils::i64x2_mul_lo(l2l3_i64x2, coeff23_i64x2));
+                sum = i64x2_add(sum, i64x2_extmul_low_i32x4(l2l3_i64x2, coeff23_i64x2));
 
                 ll_sum[i] = sum;
             }
@@ -140,24 +140,21 @@ unsafe fn horiz_convolution_four_rows(
         coeffs = coeffs_by_2.remainder();
 
         for k in coeffs_by_2 {
-            let coeff01_i64x2 = i64x2(k[0] as i64, k[1] as i64);
+            let coeff01_i64x2 = i32x4(k[0] as i32, k[1] as i32, 0, 0);
             for i in 0..4 {
                 let source = wasm32_utils::load_v128(src_rows[i], x);
                 let l_i64x2 = i8x16_swizzle(source, L0L1_SHUFFLE);
-                ll_sum[i] = i64x2_add(
-                    ll_sum[i],
-                    wasm32_utils::i64x2_mul_lo(l_i64x2, coeff01_i64x2),
-                );
+                ll_sum[i] = i64x2_add(ll_sum[i], i64x2_extmul_low_i32x4(l_i64x2, coeff01_i64x2));
             }
             x += 2;
         }
 
         if let Some(&k) = coeffs.first() {
-            let coeff01_i64x2 = i64x2(k as i64, 0);
+            let coeff01_i64x2 = i32x4(k as i32, 0, 0, 0);
             for i in 0..4 {
                 let pixel = (*src_rows[i].get_unchecked(x)).0 as i64;
                 let source = i64x2(pixel, 0);
-                ll_sum[i] = i64x2_add(ll_sum[i], wasm32_utils::i64x2_mul_lo(source, coeff01_i64x2));
+                ll_sum[i] = i64x2_add(ll_sum[i], i64x2_extmul_low_i32x4(source, coeff01_i64x2));
             }
         }
 
@@ -188,24 +185,24 @@ unsafe fn horiz_convolution_one_row(
         |L0  | |L1  | |L2  | |L3  | |L4  | |L5  | |L6  | |L7  |
         |0001| |0203| |0405| |0607| |0809| |1011| |1213| |1415|
 
-        Shuffle to extract L0 and L1 as i64:
-        0, 1, -1, -1, -1, -1, -1, -1, 2, 3, -1, -1, -1, -1, -1, -1
+        Shuffle to extract L0 and L1 as i32:
+        0, 1, -1, -1, 2, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
 
-        Shuffle to extract L2 and L3 as i64:
-        4, 5, -1, -1, -1, -1, -1, -1, 6, 7, -1, -1, -1, -1, -1, -1
+        Shuffle to extract L2 and L3 as i32:
+        4, 5, -1, -1, 6, 7, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
 
-        Shuffle to extract L4 and L5 as i64:
-        8, 9, -1, -1, -1, -1, -1, -1, 10, 11, -1, -1, -1, -1, -1, -1
+        Shuffle to extract L4 and L5 as i32:
+        8, 9, -1, -1, 10, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
 
-        Shuffle to extract L6 and L7 as i64:
-        12, 13, -1, -1, -1, -1, -1, -1, 14, 15, -1, -1, -1, -1, -1, -1
+        Shuffle to extract L6 and L7 as i32:
+        12, 13, -1, -1, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
     */
 
-    const L01_SHUFFLE: v128 = i8x16(0, 1, -1, -1, -1, -1, -1, -1, 2, 3, -1, -1, -1, -1, -1, -1);
-    const L23_SHUFFLE: v128 = i8x16(4, 5, -1, -1, -1, -1, -1, -1, 6, 7, -1, -1, -1, -1, -1, -1);
-    const L45_SHUFFLE: v128 = i8x16(8, 9, -1, -1, -1, -1, -1, -1, 10, 11, -1, -1, -1, -1, -1, -1);
+    const L01_SHUFFLE: v128 = i8x16(0, 1, -1, -1, 2, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1);
+    const L23_SHUFFLE: v128 = i8x16(4, 5, -1, -1, 6, 7, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1);
+    const L45_SHUFFLE: v128 = i8x16(8, 9, -1, -1, 10, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1);
     const L67_SHUFFLE: v128 = i8x16(
-        12, 13, -1, -1, -1, -1, -1, -1, 14, 15, -1, -1, -1, -1, -1, -1,
+        12, 13, -1, -1, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
     );
 
     for (dst_x, coeffs_chunk) in coefficients_chunks.iter().enumerate() {
@@ -217,24 +214,24 @@ unsafe fn horiz_convolution_one_row(
         coeffs = coeffs_by_8.remainder();
 
         for k in coeffs_by_8 {
-            let coeff01_i64x2 = i64x2(k[0] as i64, k[1] as i64);
-            let coeff23_i64x2 = i64x2(k[2] as i64, k[3] as i64);
-            let coeff45_i64x2 = i64x2(k[4] as i64, k[5] as i64);
-            let coeff67_i64x2 = i64x2(k[6] as i64, k[7] as i64);
+            let coeff01_i64x2 = i32x4(k[0] as i32, k[1] as i32, 0, 0);
+            let coeff23_i64x2 = i32x4(k[2] as i32, k[3] as i32, 0, 0);
+            let coeff45_i64x2 = i32x4(k[4] as i32, k[5] as i32, 0, 0);
+            let coeff67_i64x2 = i32x4(k[6] as i32, k[7] as i32, 0, 0);
 
             let source = wasm32_utils::load_v128(src_row, x);
 
             let l_i64x2 = i8x16_swizzle(source, L01_SHUFFLE);
-            ll_sum = i64x2_add(ll_sum, wasm32_utils::i64x2_mul_lo(l_i64x2, coeff01_i64x2));
+            ll_sum = i64x2_add(ll_sum, i64x2_extmul_low_i32x4(l_i64x2, coeff01_i64x2));
 
             let l_i64x2 = i8x16_swizzle(source, L23_SHUFFLE);
-            ll_sum = i64x2_add(ll_sum, wasm32_utils::i64x2_mul_lo(l_i64x2, coeff23_i64x2));
+            ll_sum = i64x2_add(ll_sum, i64x2_extmul_low_i32x4(l_i64x2, coeff23_i64x2));
 
             let l_i64x2 = i8x16_swizzle(source, L45_SHUFFLE);
-            ll_sum = i64x2_add(ll_sum, wasm32_utils::i64x2_mul_lo(l_i64x2, coeff45_i64x2));
+            ll_sum = i64x2_add(ll_sum, i64x2_extmul_low_i32x4(l_i64x2, coeff45_i64x2));
 
             let l_i64x2 = i8x16_swizzle(source, L67_SHUFFLE);
-            ll_sum = i64x2_add(ll_sum, wasm32_utils::i64x2_mul_lo(l_i64x2, coeff67_i64x2));
+            ll_sum = i64x2_add(ll_sum, i64x2_extmul_low_i32x4(l_i64x2, coeff67_i64x2));
 
             x += 8;
         }
@@ -243,16 +240,16 @@ unsafe fn horiz_convolution_one_row(
         coeffs = coeffs_by_4.remainder();
 
         for k in coeffs_by_4 {
-            let coeff01_i64x2 = i64x2(k[0] as i64, k[1] as i64);
-            let coeff23_i64x2 = i64x2(k[2] as i64, k[3] as i64);
+            let coeff01_i64x2 = i32x4(k[0] as i32, k[1] as i32, 0, 0);
+            let coeff23_i64x2 = i32x4(k[2] as i32, k[3] as i32, 0, 0);
 
             let source = wasm32_utils::load_v128(src_row, x);
 
             let l_i64x2 = i8x16_swizzle(source, L01_SHUFFLE);
-            ll_sum = i64x2_add(ll_sum, wasm32_utils::i64x2_mul_lo(l_i64x2, coeff01_i64x2));
+            ll_sum = i64x2_add(ll_sum, i64x2_extmul_low_i32x4(l_i64x2, coeff01_i64x2));
 
             let l_i64x2 = i8x16_swizzle(source, L23_SHUFFLE);
-            ll_sum = i64x2_add(ll_sum, wasm32_utils::i64x2_mul_lo(l_i64x2, coeff23_i64x2));
+            ll_sum = i64x2_add(ll_sum, i64x2_extmul_low_i32x4(l_i64x2, coeff23_i64x2));
 
             x += 4;
         }
@@ -261,20 +258,20 @@ unsafe fn horiz_convolution_one_row(
         coeffs = coeffs_by_2.remainder();
 
         for k in coeffs_by_2 {
-            let coeff01_i64x2 = i64x2(k[0] as i64, k[1] as i64);
+            let coeff01_i64x2 = i32x4(k[0] as i32, k[1] as i32, 0, 0);
             let source = wasm32_utils::load_v128(src_row, x);
 
             let l_i64x2 = i8x16_swizzle(source, L01_SHUFFLE);
-            ll_sum = i64x2_add(ll_sum, wasm32_utils::i64x2_mul_lo(l_i64x2, coeff01_i64x2));
+            ll_sum = i64x2_add(ll_sum, i64x2_extmul_low_i32x4(l_i64x2, coeff01_i64x2));
 
             x += 2;
         }
 
         if let Some(&k) = coeffs.first() {
-            let coeff01_i64x2 = i64x2(k as i64, 0);
-            let pixel = (*src_row.get_unchecked(x)).0 as i64;
-            let source = i64x2(pixel, 0);
-            ll_sum = i64x2_add(ll_sum, wasm32_utils::i64x2_mul_lo(source, coeff01_i64x2));
+            let coeff01_i64x2 = i32x4(k as i32, 0, 0, 0);
+            let pixel = (*src_row.get_unchecked(x)).0 as i32;
+            let source = i32x4(pixel, 0, 0, 0);
+            ll_sum = i64x2_add(ll_sum, i64x2_extmul_low_i32x4(source, coeff01_i64x2));
         }
 
         v128_store((&mut ll_buf).as_mut_ptr() as *mut v128, ll_sum);

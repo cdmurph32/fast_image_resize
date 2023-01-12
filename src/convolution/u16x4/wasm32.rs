@@ -60,24 +60,24 @@ unsafe fn horiz_convolution_four_rows(
        |R0   G0   B0   A0  | |R1   G1   B1   A1  |
        |0001 0203 0405 0607| |0809 1011 1213 1415|
 
-        Shuffle to extract R0 and G0 as i64:
-        0, 1, -1, -1, -1, -1, -1, -1, 2, 3, -1, -1, -1, -1, -1, -1
+        Shuffle to extract R0 and G0 as i32:
+        0, 1, -1, -1, 2, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
 
-        Shuffle to extract R1 and G1 as i64:
-        8, 9, -1, -1, -1, -1, -1, -1, 10, 11, -1, -1, -1, -1, -1, -1
+        Shuffle to extract R1 and G1 as i32:
+        8, 9, -1, -1, 10, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
 
-        Shuffle to extract B0 and A0 as i64:
-        4, 5, -1, -1, -1, -1, -1, -1, 6, 7, -1, -1, -1, -1, -1, -1
+        Shuffle to extract B0 and A0 as i32:
+        4, 5, -1, -1, 6, 7, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
 
-        Shuffle to extract B1 and A1 as i64:
-        12, 13, -1, -1, -1, -1, -1, -1, 14, 15, -1, -1, -1, -1, -1, -1
+        Shuffle to extract B1 and A1 as i32:
+        12, 13, -1, -1, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
     */
 
-    const RG0_SHUFFLE: v128 = i8x16(0, 1, -1, -1, -1, -1, -1, -1, 2, 3, -1, -1, -1, -1, -1, -1);
-    const RG1_SHUFFLE: v128 = i8x16(8, 9, -1, -1, -1, -1, -1, -1, 10, 11, -1, -1, -1, -1, -1, -1);
-    const BA0_SHUFFLE: v128 = i8x16(4, 5, -1, -1, -1, -1, -1, -1, 6, 7, -1, -1, -1, -1, -1, -1);
+    const RG0_SHUFFLE: v128 = i8x16(0, 1, -1, -1, 2, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1);
+    const RG1_SHUFFLE: v128 = i8x16(8, 9, -1, -1, 10, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1);
+    const BA0_SHUFFLE: v128 = i8x16(4, 5, -1, -1, 6, 7, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1);
     const BA1_SHUFFLE: v128 = i8x16(
-        12, 13, -1, -1, -1, -1, -1, -1, 14, 15, -1, -1, -1, -1, -1, -1,
+        12, 13, -1, -1, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
     );
 
     for (dst_x, coeffs_chunk) in coefficients_chunks.iter().enumerate() {
@@ -91,42 +91,36 @@ unsafe fn horiz_convolution_four_rows(
         coeffs = coeffs_by_2.remainder();
 
         for k in coeffs_by_2 {
-            let coeff0_i64x2 = i64x2_splat(k[0] as i64);
-            let coeff1_i64x2 = i64x2_splat(k[1] as i64);
+            let coeff0_i64x2 = i32x4_splat(k[0] as i32);
+            let coeff1_i64x2 = i32x4_splat(k[1] as i32);
 
             for i in 0..4 {
                 let source = wasm32_utils::load_v128(src_rows[i], x);
                 let mut sum = rg_sum[i];
                 let rg_i64x2 = i8x16_swizzle(source, RG0_SHUFFLE);
-                sum = i64x2_add(sum, wasm32_utils::i64x2_mul_lo(rg_i64x2, coeff0_i64x2));
+                sum = i64x2_add(sum, i64x2_extmul_low_i32x4(rg_i64x2, coeff0_i64x2));
                 let rg_i64x2 = i8x16_swizzle(source, RG1_SHUFFLE);
-                sum = i64x2_add(sum, wasm32_utils::i64x2_mul_lo(rg_i64x2, coeff1_i64x2));
+                sum = i64x2_add(sum, i64x2_extmul_low_i32x4(rg_i64x2, coeff1_i64x2));
                 rg_sum[i] = sum;
 
                 let mut sum = ba_sum[i];
                 let ba_i64x2 = i8x16_swizzle(source, BA0_SHUFFLE);
-                sum = i64x2_add(sum, wasm32_utils::i64x2_mul_lo(ba_i64x2, coeff0_i64x2));
+                sum = i64x2_add(sum, i64x2_extmul_low_i32x4(ba_i64x2, coeff0_i64x2));
                 let ba_i64x2 = i8x16_swizzle(source, BA1_SHUFFLE);
-                sum = i64x2_add(sum, wasm32_utils::i64x2_mul_lo(ba_i64x2, coeff1_i64x2));
+                sum = i64x2_add(sum, i64x2_extmul_low_i32x4(ba_i64x2, coeff1_i64x2));
                 ba_sum[i] = sum;
             }
             x += 2;
         }
 
         if let Some(&k) = coeffs.first() {
-            let coeff0_i64x2 = i64x2_splat(k as i64);
+            let coeff0_i64x2 = i32x4_splat(k as i32);
             for i in 0..4 {
                 let source = wasm32_utils::loadl_i64(src_rows[i], x);
                 let rg_i64x2 = i8x16_swizzle(source, RG0_SHUFFLE);
-                rg_sum[i] = i64x2_add(
-                    rg_sum[i],
-                    wasm32_utils::i64x2_mul_lo(rg_i64x2, coeff0_i64x2),
-                );
+                rg_sum[i] = i64x2_add(rg_sum[i], i64x2_extmul_low_i32x4(rg_i64x2, coeff0_i64x2));
                 let ba_i64x2 = i8x16_swizzle(source, BA0_SHUFFLE);
-                ba_sum[i] = i64x2_add(
-                    ba_sum[i],
-                    wasm32_utils::i64x2_mul_lo(ba_i64x2, coeff0_i64x2),
-                );
+                ba_sum[i] = i64x2_add(ba_sum[i], i64x2_extmul_low_i32x4(ba_i64x2, coeff0_i64x2));
             }
         }
 
@@ -166,24 +160,24 @@ unsafe fn horiz_convolution_one_row(
        |R0   G0   B0   A0  | |R1   G1   B1   A1  |
        |0001 0203 0405 0607| |0809 1011 1213 1415|
 
-        Shuffle to extract R0 and G0 as i64:
-        0, 1, -1, -1, -1, -1, -1, -1, 2, 3, -1, -1, -1, -1, -1, -1
+        Shuffle to extract R0 and G0 as i32:
+        0, 1, -1, -1, 2, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
 
-        Shuffle to extract R1 and G1 as i64:
-        8, 9, -1, -1, -1, -1, -1, -1, 10, 11, -1, -1, -1, -1, -1, -1
+        Shuffle to extract R1 and G1 as i32:
+        8, 9, -1, -1, 10, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
 
-        Shuffle to extract B0 and A0 as i64:
-        4, 5, -1, -1, -1, -1, -1, -1, 6, 7, -1, -1, -1, -1, -1, -1
+        Shuffle to extract B0 and A0 as i32:
+        4, 5, -1, -1, 6, 7, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
 
-        Shuffle to extract B1 and A1 as i64:
-        12, 13, -1, -1, -1, -1, -1, -1, 14, 15, -1, -1, -1, -1, -1, -1
+        Shuffle to extract B1 and A1 as i32:
+        12, 13, -1, -1, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
     */
 
-    const RG0_SHUFFLE: v128 = i8x16(0, 1, -1, -1, -1, -1, -1, -1, 2, 3, -1, -1, -1, -1, -1, -1);
-    const RG1_SHUFFLE: v128 = i8x16(8, 9, -1, -1, -1, -1, -1, -1, 10, 11, -1, -1, -1, -1, -1, -1);
-    const BA0_SHUFFLE: v128 = i8x16(4, 5, -1, -1, -1, -1, -1, -1, 6, 7, -1, -1, -1, -1, -1, -1);
+    const RG0_SHUFFLE: v128 = i8x16(0, 1, -1, -1, 2, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1);
+    const RG1_SHUFFLE: v128 = i8x16(8, 9, -1, -1, 10, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1);
+    const BA0_SHUFFLE: v128 = i8x16(4, 5, -1, -1, 6, 7, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1);
     const BA1_SHUFFLE: v128 = i8x16(
-        12, 13, -1, -1, -1, -1, -1, -1, 14, 15, -1, -1, -1, -1, -1, -1,
+        12, 13, -1, -1, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
     );
 
     for (dst_x, coeffs_chunk) in coefficients_chunks.iter().enumerate() {
@@ -196,31 +190,31 @@ unsafe fn horiz_convolution_one_row(
         coeffs = coeffs_by_2.remainder();
 
         for k in coeffs_by_2 {
-            let coeff0_i64x2 = i64x2_splat(k[0] as i64);
-            let coeff1_i64x2 = i64x2_splat(k[1] as i64);
+            let coeff0_i64x2 = i32x4_splat(k[0] as i32);
+            let coeff1_i64x2 = i32x4_splat(k[1] as i32);
 
             let source = wasm32_utils::load_v128(src_row, x);
 
             let rg_i64x2 = i8x16_swizzle(source, RG0_SHUFFLE);
-            rg_sum = i64x2_add(rg_sum, wasm32_utils::i64x2_mul_lo(rg_i64x2, coeff0_i64x2));
+            rg_sum = i64x2_add(rg_sum, i64x2_extmul_low_i32x4(rg_i64x2, coeff0_i64x2));
             let rg_i64x2 = i8x16_swizzle(source, RG1_SHUFFLE);
-            rg_sum = i64x2_add(rg_sum, wasm32_utils::i64x2_mul_lo(rg_i64x2, coeff1_i64x2));
+            rg_sum = i64x2_add(rg_sum, i64x2_extmul_low_i32x4(rg_i64x2, coeff1_i64x2));
 
             let ba_i64x2 = i8x16_swizzle(source, BA0_SHUFFLE);
-            ba_sum = i64x2_add(ba_sum, wasm32_utils::i64x2_mul_lo(ba_i64x2, coeff0_i64x2));
+            ba_sum = i64x2_add(ba_sum, i64x2_extmul_low_i32x4(ba_i64x2, coeff0_i64x2));
             let ba_i64x2 = i8x16_swizzle(source, BA1_SHUFFLE);
-            ba_sum = i64x2_add(ba_sum, wasm32_utils::i64x2_mul_lo(ba_i64x2, coeff1_i64x2));
+            ba_sum = i64x2_add(ba_sum, i64x2_extmul_low_i32x4(ba_i64x2, coeff1_i64x2));
 
             x += 2;
         }
 
         if let Some(&k) = coeffs.first() {
-            let coeff0_i64x2 = i64x2_splat(k as i64);
+            let coeff0_i64x2 = i32x4_splat(k as i32);
             let source = wasm32_utils::loadl_i64(src_row, x);
             let rg_i64x2 = i8x16_swizzle(source, RG0_SHUFFLE);
-            rg_sum = i64x2_add(rg_sum, wasm32_utils::i64x2_mul_lo(rg_i64x2, coeff0_i64x2));
+            rg_sum = i64x2_add(rg_sum, i64x2_extmul_low_i32x4(rg_i64x2, coeff0_i64x2));
             let ba_i64x2 = i8x16_swizzle(source, BA0_SHUFFLE);
-            ba_sum = i64x2_add(ba_sum, wasm32_utils::i64x2_mul_lo(ba_i64x2, coeff0_i64x2));
+            ba_sum = i64x2_add(ba_sum, i64x2_extmul_low_i32x4(ba_i64x2, coeff0_i64x2));
         }
 
         v128_store((&mut rg_buf).as_mut_ptr() as *mut v128, rg_sum);

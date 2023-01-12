@@ -21,14 +21,14 @@ pub(crate) fn horiz_convolution(
     let dst_iter = dst_image.iter_4_rows_mut();
     for (src_rows, dst_rows) in src_iter.zip(dst_iter) {
         unsafe {
-            horiz_convolution_8u4x(src_rows, dst_rows, &coefficients_chunks, &normalizer);
+            horiz_convolution_16u4x(src_rows, dst_rows, &coefficients_chunks, &normalizer);
         }
     }
 
     let mut yy = dst_height - dst_height % 4;
     while yy < dst_height {
         unsafe {
-            horiz_convolution_8u(
+            horiz_convolution_16u(
                 src_image.get_row(yy + offset).unwrap(),
                 dst_image.get_row_mut(yy).unwrap(),
                 &coefficients_chunks,
@@ -46,7 +46,7 @@ pub(crate) fn horiz_convolution(
 /// - max(chunk.start + chunk.values.len() for chunk in coefficients_chunks) <= src_row.0.len()
 /// - precision <= MAX_COEFS_PRECISION
 #[target_feature(enable = "simd128")]
-unsafe fn horiz_convolution_8u4x(
+unsafe fn horiz_convolution_16u4x(
     src_rows: [&[U16x3]; 4],
     dst_rows: [&mut &mut [U16x3]; 4],
     coefficients_chunks: &[CoefficientsI32Chunk],
@@ -62,20 +62,20 @@ unsafe fn horiz_convolution_8u4x(
         |R    G    B   | |R    G    B   | |R    G   |
         |0001 0203 0405| |0607 0809 1011| |1213 1415|
 
-        Shuffle to extract RG components of first pixel as i64:
-        0, 1, -1, -1, -1, -1, -1, -1, 2, 3, -1, -1, -1, -1, -1, -1
+        Shuffle to extract RG components of first pixel as i32:
+        0, 1, -1, -1, 2, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
 
-        Shuffle to extract RG components of second pixel as i64:
-        6, 7, -1, -1, -1, -1, -1, -1, 8, 9, -1, -1, -1, -1, -1, -1
+        Shuffle to extract RG components of second pixel as i32:
+        6, 7, -1, -1, 8, 9, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
 
-        Shuffle to extract B components of two pixels as i64:
-        4, 5, -1, -1, -1, -1, -1, -1, 10, 11, -1, -1, -1, -1, -1, -1
+        Shuffle to extract B components of two pixels as i32:
+        4, 5, -1, -1, 10, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
 
     */
 
-    const RG0_SHUFFLE: v128 = i8x16(0, 1, -1, -1, -1, -1, -1, -1, 2, 3, -1, -1, -1, -1, -1, -1);
-    const RG1_SHUFFLE: v128 = i8x16(6, 7, -1, -1, -1, -1, -1, -1, 8, 9, -1, -1, -1, -1, -1, -1);
-    const BB_SHUFFLE: v128 = i8x16(4, 5, -1, -1, -1, -1, -1, -1, 10, 11, -1, -1, -1, -1, -1, -1);
+    const RG0_SHUFFLE: v128 = i8x16(0, 1, -1, -1, 2, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1);
+    const RG1_SHUFFLE: v128 = i8x16(6, 7, -1, -1, 8, 9, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1);
+    const BB_SHUFFLE: v128 = i8x16(4, 5, -1, -1, 10, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1);
 
     let width = src_rows[0].len();
 
@@ -92,42 +92,37 @@ unsafe fn horiz_convolution_8u4x(
             coeffs = coeffs_by_2.remainder();
 
             for k in coeffs_by_2 {
-                let coeff0_i64x2 = i64x2_splat(k[0] as i64);
-                let coeff1_i64x2 = i64x2_splat(k[1] as i64);
-                let coeff_i64x2 = i64x2(k[0] as i64, k[1] as i64);
+                let coeff0_i64x2 = i32x4_splat(k[0] as i32);
+                let coeff1_i64x2 = i32x4_splat(k[1] as i32);
+                let coeff_i64x2 = i32x4(k[0] as i32, k[1] as i32, 0, 0);
 
                 for i in 0..4 {
                     let source = wasm32_utils::load_v128(src_rows[i], x);
 
                     let rg0_i64x2 = i8x16_swizzle(source, RG0_SHUFFLE);
-                    rg_sum[i] = i64x2_add(
-                        rg_sum[i],
-                        wasm32_utils::i64x2_mul_lo(rg0_i64x2, coeff0_i64x2),
-                    );
+                    rg_sum[i] =
+                        i64x2_add(rg_sum[i], i64x2_extmul_low_i32x4(rg0_i64x2, coeff0_i64x2));
 
                     let rg1_i64x2 = i8x16_swizzle(source, RG1_SHUFFLE);
-                    rg_sum[i] = i64x2_add(
-                        rg_sum[i],
-                        wasm32_utils::i64x2_mul_lo(rg1_i64x2, coeff1_i64x2),
-                    );
+                    rg_sum[i] =
+                        i64x2_add(rg_sum[i], i64x2_extmul_low_i32x4(rg1_i64x2, coeff1_i64x2));
 
                     let bb_i64x2 = i8x16_swizzle(source, BB_SHUFFLE);
-                    bb_sum[i] =
-                        i64x2_add(bb_sum[i], wasm32_utils::i64x2_mul_lo(bb_i64x2, coeff_i64x2));
+                    bb_sum[i] = i64x2_add(bb_sum[i], i64x2_extmul_low_i32x4(bb_i64x2, coeff_i64x2));
                 }
                 x += 2;
             }
         }
 
         for &k in coeffs {
-            let coeff_i64x2 = i64x2_splat(k as i64);
+            let coeff_i64x2 = i32x4_splat(k as i32);
 
             for i in 0..4 {
                 let &pixel = src_rows[i].get_unchecked(x);
-                let rg_i64x2 = i64x2(pixel.0[0] as i64, pixel.0[1] as i64);
-                rg_sum[i] = i64x2_add(rg_sum[i], wasm32_utils::i64x2_mul_lo(rg_i64x2, coeff_i64x2));
-                let bb_i64x2 = i64x2(pixel.0[2] as i64, 0);
-                bb_sum[i] = i64x2_add(bb_sum[i], wasm32_utils::i64x2_mul_lo(bb_i64x2, coeff_i64x2));
+                let rg_i64x2 = i32x4(pixel.0[0] as i32, pixel.0[1] as i32, 0, 0);
+                rg_sum[i] = i64x2_add(rg_sum[i], i64x2_extmul_low_i32x4(rg_i64x2, coeff_i64x2));
+                let bb_i64x2 = i32x4(pixel.0[2] as i32, 0, 0, 0);
+                bb_sum[i] = i64x2_add(bb_sum[i], i64x2_extmul_low_i32x4(bb_i64x2, coeff_i64x2));
             }
             x += 1;
         }
@@ -149,7 +144,7 @@ unsafe fn horiz_convolution_8u4x(
 /// - max(chunk.start + chunk.values.len() for chunk in coefficients_chunks) <= src_row.len()
 /// - precision <= MAX_COEFS_PRECISION
 #[target_feature(enable = "simd128")]
-unsafe fn horiz_convolution_8u(
+unsafe fn horiz_convolution_16u(
     src_row: &[U16x3],
     dst_row: &mut [U16x3],
     coefficients_chunks: &[CoefficientsI32Chunk],
@@ -163,20 +158,20 @@ unsafe fn horiz_convolution_8u(
         |R    G    B   | |R    G    B   | |R    G   |
         |0001 0203 0405| |0607 0809 1011| |1213 1415|
 
-        Shuffle to extract RG components of first pixel as i64:
-        0, 1, -1, -1, -1, -1, -1, -1, 2, 3, -1, -1, -1, -1, -1, -1
+        Shuffle to extract RG components of first pixel as i32:
+        0, 1, -1, -1, 2, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
 
-        Shuffle to extract RG components of second pixel as i64:
-        6, 7, -1, -1, -1, -1, -1, -1, 8, 9, -1, -1, -1, -1, -1, -1
+        Shuffle to extract RG components of second pixel as i32:
+        6, 7, -1, -1, 8, 9, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
 
-        Shuffle to extract B components of two pixels as i64:
-        4, 5, -1, -1, -1, -1, -1, -1, 10, 11, -1, -1, -1, -1, -1, -1
+        Shuffle to extract B components of two pixels as i32:
+        4, 5, -1, -1, 10, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
 
     */
 
-    const RG0_SHUFFLE: v128 = i8x16(0, 1, -1, -1, -1, -1, -1, -1, 2, 3, -1, -1, -1, -1, -1, -1);
-    const RG1_SHUFFLE: v128 = i8x16(6, 7, -1, -1, -1, -1, -1, -1, 8, 9, -1, -1, -1, -1, -1, -1);
-    const BB_SHUFFLE: v128 = i8x16(4, 5, -1, -1, -1, -1, -1, -1, 10, 11, -1, -1, -1, -1, -1, -1);
+    const RG0_SHUFFLE: v128 = i8x16(0, 1, -1, -1, 2, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1);
+    const RG1_SHUFFLE: v128 = i8x16(6, 7, -1, -1, 8, 9, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1);
+    const BB_SHUFFLE: v128 = i8x16(4, 5, -1, -1, 10, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1);
     let mut rg_buf = [0i64; 2];
     let mut bb_buf = [0i64; 2];
 
@@ -196,32 +191,32 @@ unsafe fn horiz_convolution_8u(
             coeffs = coeffs_by_2.remainder();
 
             for k in coeffs_by_2 {
-                let coeff0_i64x2 = i64x2_splat(k[0] as i64);
-                let coeff1_i64x2 = i64x2_splat(k[1] as i64);
-                let coeff_i64x2 = i64x2(k[0] as i64, k[1] as i64);
+                let coeff0_i64x2 = i32x4_splat(k[0] as i32);
+                let coeff1_i64x2 = i32x4_splat(k[1] as i32);
+                let coeff_i64x2 = i32x4(k[0] as i32, k[1] as i32, 0, 0);
 
                 let source = wasm32_utils::load_v128(src_row, x);
 
                 let rg0_i64x2 = i8x16_swizzle(source, RG0_SHUFFLE);
-                rg_sum = i64x2_add(rg_sum, wasm32_utils::i64x2_mul_lo(rg0_i64x2, coeff0_i64x2));
+                rg_sum = i64x2_add(rg_sum, i64x2_extmul_low_i32x4(rg0_i64x2, coeff0_i64x2));
 
                 let rg1_i64x2 = i8x16_swizzle(source, RG1_SHUFFLE);
-                rg_sum = i64x2_add(rg_sum, wasm32_utils::i64x2_mul_lo(rg1_i64x2, coeff1_i64x2));
+                rg_sum = i64x2_add(rg_sum, i64x2_extmul_low_i32x4(rg1_i64x2, coeff1_i64x2));
 
                 let bb_i64x2 = i8x16_swizzle(source, BB_SHUFFLE);
-                bb_sum = i64x2_add(bb_sum, wasm32_utils::i64x2_mul_lo(bb_i64x2, coeff_i64x2));
+                bb_sum = i64x2_add(bb_sum, i64x2_extmul_low_i32x4(bb_i64x2, coeff_i64x2));
                 x += 2;
             }
         }
 
         for &k in coeffs {
-            let coeff_i64x2 = i64x2_splat(k as i64);
+            let coeff_i64x2 = i32x4_splat(k as i32);
 
             let &pixel = src_row.get_unchecked(x);
-            let rg_i64x2 = i64x2(pixel.0[0] as i64, pixel.0[1] as i64);
-            rg_sum = i64x2_add(rg_sum, wasm32_utils::i64x2_mul_lo(rg_i64x2, coeff_i64x2));
-            let bb_i64x2 = i64x2(pixel.0[2] as i64, 0);
-            bb_sum = i64x2_add(bb_sum, wasm32_utils::i64x2_mul_lo(bb_i64x2, coeff_i64x2));
+            let rg_i64x2 = i32x4(pixel.0[0] as i32, pixel.0[1] as i32, 0, 0);
+            rg_sum = i64x2_add(rg_sum, i64x2_extmul_low_i32x4(rg_i64x2, coeff_i64x2));
+            let bb_i64x2 = i32x4(pixel.0[2] as i32, 0, 0, 0);
+            bb_sum = i64x2_add(bb_sum, i64x2_extmul_low_i32x4(bb_i64x2, coeff_i64x2));
 
             x += 1;
         }
