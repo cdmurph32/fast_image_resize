@@ -1,8 +1,15 @@
 use std::num::NonZeroU32;
+
+#[cfg(not(target_arch = "wasm32"))]
+use glassbench::*;
+#[cfg(not(target_arch = "wasm32"))]
 use std::thread::sleep;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
-use glassbench::*;
+#[cfg(target_arch = "wasm32")]
+use benchmark_simple::*;
+
 use image::imageops;
 use resize::Pixel::Gray8;
 use rgb::alt::Gray;
@@ -32,11 +39,22 @@ pub fn bench_downscale_l(bench: &mut Bench) {
             "Lanczos3" => imageops::Lanczos3,
             _ => continue,
         };
+        #[cfg(not(target_arch = "wasm32"))]
         bench.task(format!("image - {}", alg_name), |task| {
             task.iter(|| {
                 imageops::resize(&src_image, new_width.get(), new_height.get(), filter);
             })
         });
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let mut options = Options::default();
+            options.iterations = 10;
+            let res = bench.run(&options, || {
+                imageops::resize(&src_image, new_width.get(), new_height.get(), filter);
+            });
+            println!("image - {}: {}", alg_name, res);
+        }
     }
 
     // resize crate
@@ -44,6 +62,7 @@ pub fn bench_downscale_l(bench: &mut Bench) {
     for alg_name in alg_names {
         let resize_src_image = src_image.as_raw().as_gray();
         let mut dst = vec![Gray(0u8); (new_width.get() * new_height.get()) as usize];
+        #[cfg(not(target_arch = "wasm32"))]
         bench.task(format!("resize - {}", alg_name), |task| {
             let filter = match alg_name {
                 "Nearest" => {
@@ -69,6 +88,34 @@ pub fn bench_downscale_l(bench: &mut Bench) {
                 resize.resize(resize_src_image, &mut dst).unwrap();
             })
         });
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let filter = match alg_name {
+                "Nearest" => {
+                    continue;
+                }
+                "Bilinear" => resize::Type::Triangle,
+                "CatmullRom" => resize::Type::Catrom,
+                "Lanczos3" => resize::Type::Lanczos3,
+                _ => return,
+            };
+            let mut resize = resize::new(
+                src_image.width() as usize,
+                src_image.height() as usize,
+                new_width.get() as usize,
+                new_height.get() as usize,
+                Gray8,
+                filter,
+            )
+            .unwrap();
+            let mut options = Options::default();
+            options.iterations = 10;
+            let res = bench.run(&options, || {
+                resize.resize(resize_src_image, &mut dst).unwrap();
+            });
+            println!("resize - {}: {}", alg_name, res);
+        }
     }
 
     // fast_image_resize crate;
@@ -81,6 +128,10 @@ pub fn bench_downscale_l(bench: &mut Bench) {
     #[cfg(target_arch = "aarch64")]
     {
         cpu_ext_and_name.push((CpuExtensions::Neon, "neon"));
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        cpu_ext_and_name.push((CpuExtensions::Wasm32, "wasm32"));
     }
     for (cpu_ext, ext_name) in cpu_ext_and_name {
         for alg_name in alg_names {
@@ -103,15 +154,34 @@ pub fn bench_downscale_l(bench: &mut Bench) {
                 fast_resizer.set_cpu_extensions(cpu_ext);
             }
 
+            #[cfg(not(target_arch = "wasm32"))]
             bench.task(format!("fir {} - {}", ext_name, alg_name), |task| {
                 task.iter(|| {
                     fast_resizer.resize(&src_view, &mut dst_view).unwrap();
                 })
             });
+            #[cfg(target_arch = "wasm32")]
+            {
+                let mut options = Options::default();
+                options.iterations = 10;
+                let res = bench.run(&options, || {
+                    fast_resizer.resize(&src_view, &mut dst_view).unwrap();
+                });
+                println!("fir {} - {}: {}", ext_name, alg_name, res);
+            }
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     utils::print_md_table(bench);
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 bench_main!("Compare resize of U8 image", bench_downscale_l,);
+
+#[cfg(target_arch = "wasm32")]
+pub fn main() {
+    println!("Compare resize of U8 image");
+    let mut bench = Bench::new();
+    bench_downscale_l(&mut bench);
+}

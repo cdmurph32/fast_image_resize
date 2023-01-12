@@ -1,6 +1,11 @@
 use std::num::NonZeroU32;
 
+use fast_image_resize::DynamicImageViewMut;
+#[cfg(not(target_arch = "wasm32"))]
 use glassbench::*;
+
+#[cfg(target_arch = "wasm32")]
+use benchmark_simple::*;
 
 use fast_image_resize::MulDiv;
 use fast_image_resize::PixelType;
@@ -42,30 +47,56 @@ fn multiplies_alpha(bench: &mut Bench, pixel_type: PixelType, cpu_extensions: Cp
         alpha_mul_div.set_cpu_extensions(cpu_extensions);
     }
 
-    bench.task(
-        format!("Multiplies alpha {:?} {:?}", pixel_type, cpu_extensions),
-        |task| {
-            task.iter(|| {
-                alpha_mul_div
-                    .multiply_alpha(&src_view, &mut dst_view)
-                    .unwrap();
-            })
-        },
-    );
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        bench.task(
+            format!("Multiplies alpha {:?} {:?}", pixel_type, cpu_extensions),
+            |task| {
+                task.iter(|| {
+                    alpha_mul_div
+                        .multiply_alpha(&src_view, &mut dst_view)
+                        .unwrap();
+                })
+            },
+        );
 
-    bench.task(
-        format!(
-            "Multiplies alpha inplace {:?} {:?}",
-            pixel_type, cpu_extensions
-        ),
-        |task| {
+        bench.task(
+            format!(
+                "Multiplies alpha inplace {:?} {:?}",
+                pixel_type, cpu_extensions
+            ),
+            |task| {
+                let mut data = get_src_image(width, height, pixel_type, pixel);
+                let mut view = data.view_mut();
+                task.iter(|| {
+                    alpha_mul_div.multiply_alpha_inplace(&mut view).unwrap();
+                })
+            },
+        );
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let mut options = Options::default();
+        options.iterations = 10;
+        let res = bench.run(&options, || {
+            alpha_mul_div
+                .multiply_alpha(&src_view, &mut dst_view)
+                .unwrap();
+        });
+        println!(
+            "Multiplies alpha {:?} {:?} {}",
+            pixel_type, cpu_extensions, res
+        );
+        let res = bench.run(&options, || {
             let mut data = get_src_image(width, height, pixel_type, pixel);
             let mut view = data.view_mut();
-            task.iter(|| {
-                alpha_mul_div.multiply_alpha_inplace(&mut view).unwrap();
-            })
-        },
-    );
+            alpha_mul_div.multiply_alpha_inplace(&mut view).unwrap();
+        });
+        println!(
+            "Multiplies alpha inplace {:?} {:?} {}",
+            pixel_type, cpu_extensions, res
+        );
+    }
 }
 
 fn divides_alpha(bench: &mut Bench, pixel_type: PixelType, cpu_extensions: CpuExtensions) {
@@ -87,30 +118,56 @@ fn divides_alpha(bench: &mut Bench, pixel_type: PixelType, cpu_extensions: CpuEx
         alpha_mul_div.set_cpu_extensions(cpu_extensions);
     }
 
-    bench.task(
-        format!("Divides alpha {:?} {:?}", pixel_type, cpu_extensions),
-        |task| {
-            task.iter(|| {
-                alpha_mul_div
-                    .divide_alpha(&src_view, &mut dst_view)
-                    .unwrap();
-            })
-        },
-    );
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        bench.task(
+            format!("Divides alpha {:?} {:?}", pixel_type, cpu_extensions),
+            |task| {
+                task.iter(|| {
+                    alpha_mul_div
+                        .divide_alpha(&src_view, &mut dst_view)
+                        .unwrap();
+                })
+            },
+        );
 
-    bench.task(
-        format!(
-            "Divides alpha inplace {:?} {:?}",
-            pixel_type, cpu_extensions
-        ),
-        |task| {
+        bench.task(
+            format!(
+                "Divides alpha inplace {:?} {:?}",
+                pixel_type, cpu_extensions
+            ),
+            |task| {
+                let mut data = get_src_image(width, height, pixel_type, pixel);
+                let mut view = data.view_mut();
+                task.iter(|| {
+                    alpha_mul_div.divide_alpha_inplace(&mut view).unwrap();
+                })
+            },
+        );
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let mut options = Options::default();
+        options.iterations = 10;
+        let res = bench.run(&options, || {
+            alpha_mul_div
+                .divide_alpha(&src_view, &mut dst_view)
+                .unwrap();
+        });
+        println!(
+            "Divides alpha {:?} {:?}: {}",
+            pixel_type, cpu_extensions, res
+        );
+        let res = bench.run(&options, || {
             let mut data = get_src_image(width, height, pixel_type, pixel);
             let mut view = data.view_mut();
-            task.iter(|| {
-                alpha_mul_div.divide_alpha_inplace(&mut view).unwrap();
-            })
-        },
-    );
+            alpha_mul_div.divide_alpha_inplace(&mut view).unwrap();
+        });
+        println!(
+            "Divides alpha inplace {:?} {:?}: {}",
+            pixel_type, cpu_extensions, res
+        );
+    }
 }
 
 fn bench_alpha(bench: &mut Bench) {
@@ -130,6 +187,10 @@ fn bench_alpha(bench: &mut Bench) {
     {
         cpu_extensions.push(CpuExtensions::Neon);
     }
+    #[cfg(target_arch = "wasm32")]
+    {
+        cpu_extensions.push(CpuExtensions::Wasm32);
+    }
     for pixel_type in pixel_types {
         for &extensions in cpu_extensions.iter() {
             println!("Mul {:?} {:?}", pixel_type, extensions);
@@ -144,4 +205,11 @@ fn bench_alpha(bench: &mut Bench) {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 bench_main!("Bench Alpha", bench_alpha,);
+
+#[cfg(target_arch = "wasm32")]
+pub fn main() {
+    let mut bench = Bench::new();
+    bench_alpha(&mut bench);
+}

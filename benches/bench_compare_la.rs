@@ -1,6 +1,10 @@
 use std::num::NonZeroU32;
 
+#[cfg(not(target_arch = "wasm32"))]
 use glassbench::*;
+
+#[cfg(target_arch = "wasm32")]
+use benchmark_simple::*;
 
 use fast_image_resize::pixels::U8x2;
 use fast_image_resize::{CpuExtensions, FilterType, Image, MulDiv, PixelType, ResizeAlg, Resizer};
@@ -24,6 +28,10 @@ pub fn bench_downscale_la(bench: &mut Bench) {
     #[cfg(target_arch = "aarch64")]
     {
         cpu_ext_and_name.push((CpuExtensions::Neon, "neon"));
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        cpu_ext_and_name.push((CpuExtensions::Wasm32, "wasm32"));
     }
     for (cpu_ext, ext_name) in cpu_ext_and_name {
         for alg_name in alg_names {
@@ -50,6 +58,7 @@ pub fn bench_downscale_la(bench: &mut Bench) {
                 mul_div.set_cpu_extensions(cpu_ext);
             }
 
+            #[cfg(not(target_arch = "wasm32"))]
             bench.task(
                 format!("fir {} - {}", ext_name, alg_name),
                 |task| match resize_alg {
@@ -72,10 +81,41 @@ pub fn bench_downscale_la(bench: &mut Bench) {
                     }
                 },
             );
+
+            #[cfg(target_arch = "wasm32")]
+            {
+                let mut options = Options::default();
+                options.iterations = 10;
+                let res = match resize_alg {
+                    ResizeAlg::Nearest => bench.run(&options, || {
+                        fast_resizer.resize(&src_view, &mut dst_view).unwrap();
+                    }),
+                    _ => bench.run(&options, || {
+                        let mut premultiplied_view = premultiplied_src_image.view_mut();
+                        mul_div
+                            .multiply_alpha(&src_view, &mut premultiplied_view)
+                            .unwrap();
+                        fast_resizer
+                            .resize(&premultiplied_view.into(), &mut dst_view)
+                            .unwrap();
+                        mul_div.divide_alpha_inplace(&mut dst_view).unwrap();
+                    }),
+                };
+                println!("fir {} - {}: {}", ext_name, alg_name, res);
+            }
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     utils::print_md_table(bench);
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 bench_main!("Compare resize of LA image", bench_downscale_la,);
+
+#[cfg(target_arch = "wasm32")]
+pub fn main() {
+    println!("Compare resize of LA image");
+    let mut bench = Bench::new();
+    bench_downscale_la(&mut bench);
+}
