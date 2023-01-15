@@ -34,7 +34,6 @@ rgb = "0.8.34"
 png = "0.17.7"
 nix = { version = "0.26.1", default-features = false, features = ["sched"] }
 testing = { path = "testing" }
-bincode = "1.3.3"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 glassbench = "0.3.3"
